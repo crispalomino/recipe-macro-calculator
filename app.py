@@ -28,7 +28,7 @@ def save_all_recipes(recipes):
 def save_recipe(recipe_data, overwrite=False):
     recipes = load_recipes()
     if overwrite:
-        recipes = [r for r in recipes if r["title"] != recipe_data["title"]]
+        recipes = [r for r in recipes if r.get("title") != recipe_data["title"]]
     recipes.append(recipe_data)
     save_all_recipes(recipes)
 
@@ -52,27 +52,40 @@ def auto_increment_title(base_title, existing_titles):
             return new_title
         count += 1
 
-# ✅ FIXED LINE: Safe extraction of categories
 recipes = load_recipes()
+
+# ✅ FIXED: safely extract categories
 categories = sorted(set(
-    r["category"] if isinstance(r, dict) and "category" in r else "Uncategorized"
+    r.get("category", "Uncategorized") if isinstance(r, dict) else "Uncategorized"
     for r in recipes
 ))
 categories = ["All"] + categories
 
 selected_category = st.selectbox("📁 Filter by Category", categories)
 show_favorites_only = st.checkbox("⭐ Show Favorites Only")
-filtered = [r for r in recipes if (selected_category == "All" or r.get("category") == selected_category)
-            and (not show_favorites_only or r.get("favorite", False))]
+
+# ✅ FIXED: filter only valid dicts
+filtered = [
+    r for r in recipes if isinstance(r, dict)
+    and (selected_category == "All" or r.get("category") == selected_category)
+    and (not show_favorites_only or r.get("favorite", False))
+]
+
 search_query = st.text_input("🔍 Search by title or tag")
 if search_query:
-    filtered = [r for r in filtered if search_query.lower() in r["title"].lower()
-                or any(search_query.lower() in tag.lower() for tag in r.get("tags", []))]
-recipe_titles = [r["title"] for r in filtered]
-selected_title = st.selectbox("📂 Load a Recipe", [""] + recipe_titles)
-loaded_recipe = next((r for r in recipes if r["title"] == selected_title), None)
+    filtered = [
+        r for r in filtered
+        if isinstance(r, dict) and (
+            search_query.lower() in r.get("title", "").lower() or
+            any(search_query.lower() in tag.lower() for tag in r.get("tags", []))
+        )
+    ]
 
-# Load values or use defaults
+# ✅ FIXED: avoid type error if recipe malformed
+recipe_titles = [r["title"] for r in filtered if isinstance(r, dict) and "title" in r]
+selected_title = st.selectbox("📂 Load a Recipe", [""] + recipe_titles)
+loaded_recipe = next((r for r in recipes if isinstance(r, dict) and r.get("title") == selected_title), None)
+
 default_title = loaded_recipe["title"] if loaded_recipe else "My Healthy Recipe"
 default_servings = loaded_recipe["servings"] if loaded_recipe else 1
 base_servings = loaded_recipe.get("base_servings", default_servings) if loaded_recipe else default_servings
@@ -83,7 +96,6 @@ default_fav = loaded_recipe.get("favorite", False) if loaded_recipe else False
 default_instructions = loaded_recipe.get("instructions", "") if loaded_recipe else ""
 initial_count = len(default_ingredients) if default_ingredients else 5
 
-# --- Form ---
 with st.form("recipe_form"):
     title = st.text_input("Recipe Title", default_title)
     servings = st.number_input("Servings", min_value=1, value=default_servings)
@@ -123,7 +135,6 @@ with st.form("recipe_form"):
     save_as = col3.form_submit_button("📝 Save As New")
     duplicate = col4.form_submit_button("📎 Duplicate")
 
-# Save actions
 if save or save_as:
     recipe_obj = build_recipe_object(
         title, servings, tags, category, ingredients, favorite, instructions, base_servings
@@ -142,12 +153,11 @@ if duplicate and loaded_recipe:
     st.experimental_rerun()
 
 if loaded_recipe and st.button("🗑 Delete This Recipe"):
-    recipes = [r for r in recipes if r["title"] != loaded_recipe["title"]]
+    recipes = [r for r in recipes if r.get("title") != loaded_recipe["title"]]
     save_all_recipes(recipes)
     st.success(f"Deleted: {loaded_recipe['title']}")
     st.experimental_rerun()
 
-# --- Calculate Macros ---
 if submitted:
     try:
         names = [i["name"] for i in ingredients]
@@ -181,57 +191,3 @@ if submitted:
 
     except Exception as e:
         st.error(f"Error during calculation: {str(e)}")
-
-# --- Compare Recipes ---
-st.markdown("### 📊 Compare Recipes")
-to_compare = st.multiselect("Select Recipes to Compare", [r["title"] for r in recipes])
-
-if to_compare:
-    comparison = []
-    for title in to_compare:
-        r = next((x for x in recipes if x["title"] == title), None)
-        if not r: continue
-        names = [i["name"] for i in r["ingredients"]]
-        weights = [i["weight"] for i in r["ingredients"]]
-        units = [i["unit"] for i in r["ingredients"]]
-        overrides = [i.get("override") for i in r["ingredients"]]
-        macros, _ = get_macro_totals(names, weights, units, overrides)
-
-        row = {
-            "Title": title,
-            **{k + " (total)": round(v, 2) for k, v in macros.items()},
-            **{k + " (per serving)": round(v / r["servings"], 2) for k, v in macros.items()}
-        }
-        comparison.append(row)
-
-    df = pd.DataFrame(comparison).set_index("Title")
-    st.dataframe(df)
-
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-    generate_pdf_from_dataframe(df, "Recipe Comparison", tmp.name)
-    with open(tmp.name, "rb") as f:
-        st.download_button("📄 Export Comparison as PDF", f, file_name="recipe_comparison.pdf")
-
-# --- Import / Export ---
-st.markdown("### 🔄 Import / Export")
-
-col_exp, col_imp = st.columns(2)
-with col_exp:
-    st.download_button("⬇️ Export All Recipes", data=json.dumps(recipes, indent=2), file_name="all_saved_recipes.json")
-
-with col_imp:
-    uploaded = st.file_uploader("⬆️ Import Recipes (JSON)", type="json")
-    if uploaded:
-        try:
-            imported = json.load(uploaded)
-            if isinstance(imported, list):
-                existing = {r['title'] for r in recipes}
-                new = [r for r in imported if r['title'] not in existing]
-                recipes.extend(new)
-                save_all_recipes(recipes)
-                st.success(f"✅ Imported {len(new)} new recipes.")
-                st.experimental_rerun()
-            else:
-                st.error("Invalid file format.")
-        except Exception as e:
-            st.error(f"Import failed: {str(e)}")
