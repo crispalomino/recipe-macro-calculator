@@ -52,10 +52,14 @@ def auto_increment_title(base_title, existing_titles):
             return new_title
         count += 1
 
-# Load and filter
+# ✅ FIXED LINE: Safe extraction of categories
 recipes = load_recipes()
-categories = sorted(set(r.get("category", "Uncategorized") for r in recipes))
+categories = sorted(set(
+    r["category"] if isinstance(r, dict) and "category" in r else "Uncategorized"
+    for r in recipes
+))
 categories = ["All"] + categories
+
 selected_category = st.selectbox("📁 Filter by Category", categories)
 show_favorites_only = st.checkbox("⭐ Show Favorites Only")
 filtered = [r for r in recipes if (selected_category == "All" or r.get("category") == selected_category)
@@ -68,6 +72,7 @@ recipe_titles = [r["title"] for r in filtered]
 selected_title = st.selectbox("📂 Load a Recipe", [""] + recipe_titles)
 loaded_recipe = next((r for r in recipes if r["title"] == selected_title), None)
 
+# Load values or use defaults
 default_title = loaded_recipe["title"] if loaded_recipe else "My Healthy Recipe"
 default_servings = loaded_recipe["servings"] if loaded_recipe else 1
 base_servings = loaded_recipe.get("base_servings", default_servings) if loaded_recipe else default_servings
@@ -118,7 +123,7 @@ with st.form("recipe_form"):
     save_as = col3.form_submit_button("📝 Save As New")
     duplicate = col4.form_submit_button("📎 Duplicate")
 
-# --- Save Logic ---
+# Save actions
 if save or save_as:
     recipe_obj = build_recipe_object(
         title, servings, tags, category, ingredients, favorite, instructions, base_servings
@@ -142,7 +147,7 @@ if loaded_recipe and st.button("🗑 Delete This Recipe"):
     st.success(f"Deleted: {loaded_recipe['title']}")
     st.experimental_rerun()
 
-# --- Macro Calc ---
+# --- Calculate Macros ---
 if submitted:
     try:
         names = [i["name"] for i in ingredients]
@@ -177,7 +182,7 @@ if submitted:
     except Exception as e:
         st.error(f"Error during calculation: {str(e)}")
 
-# --- Compare ---
+# --- Compare Recipes ---
 st.markdown("### 📊 Compare Recipes")
 to_compare = st.multiselect("Select Recipes to Compare", [r["title"] for r in recipes])
 
