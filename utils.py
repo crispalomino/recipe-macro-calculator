@@ -75,6 +75,7 @@ def fetch_usda_nutrition(query):
         api_key = os.environ.get("USDA_API_KEY") or                   (os.path.exists(".streamlit/secrets.toml") and read_usda_key())
         if not api_key:
             return None
+
         url = f"https://api.nal.usda.gov/fdc/v1/foods/search?query={query}&api_key={api_key}&pageSize=1"
         res = requests.get(url)
         if res.status_code == 429:
@@ -138,7 +139,11 @@ def export_recipe_pdf(title, df, totals, servings, instructions):
     pdf.cell(0, 10, title, ln=1)
 
     pdf.set_font("Arial", "", 11)
-    pdf.multi_cell(0, 10, f"Servings: {servings}\n\nInstructions:\n{instructions}\n")
+    pdf.multi_cell(0, 10, f"Servings: {servings}
+
+Instructions:
+{instructions}
+")
 
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 10, "Ingredients", ln=1)
