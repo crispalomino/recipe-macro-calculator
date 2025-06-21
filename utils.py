@@ -72,10 +72,9 @@ def convert_unit_to_grams(unit, amount, custom_data=None):
 
 def fetch_usda_nutrition(query):
     try:
-        api_key = os.environ.get("USDA_API_KEY") or                   (os.path.exists(".streamlit/secrets.toml") and read_usda_key())
+        api_key = os.environ.get("USDA_API_KEY") or (os.path.exists(".streamlit/secrets.toml") and read_usda_key())
         if not api_key:
             return None
-
         url = f"https://api.nal.usda.gov/fdc/v1/foods/search?query={query}&api_key={api_key}&pageSize=1"
         res = requests.get(url)
         if res.status_code == 429:
@@ -137,29 +136,20 @@ def export_recipe_pdf(title, df, totals, servings, instructions):
     pdf.add_page()
     pdf.set_font("Arial", "B", 14)
     pdf.cell(0, 10, title, ln=1)
-
     pdf.set_font("Arial", "", 11)
-    pdf.multi_cell(0, 10, f"Servings: {servings}
-
-Instructions:
-{instructions}
-")
-
+    pdf.multi_cell(0, 10, f"Servings: {servings}\n\nInstructions:\n{instructions}\n")
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 10, "Ingredients", ln=1)
-
     pdf.set_font("Arial", "", 10)
     for _, row in df.iterrows():
         line = f"{row['Ingredient']}: {row['Amount']} ({row['Grams']}g) | P: {row['Protein']}g, C: {row['Carbs']}g, F: {row['Fat']}g, Cal: {row['Calories']}"
         pdf.multi_cell(0, 8, line)
-
     pdf.ln(5)
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 10, "Total Macros", ln=1)
     pdf.set_font("Arial", "", 10)
     for k, v in totals.items():
         pdf.cell(0, 8, f"{k.capitalize()}: {v}", ln=1)
-
     output = BytesIO()
     pdf.output(output)
     return output.getvalue()
