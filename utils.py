@@ -1,92 +1,117 @@
-import json
-import os
-from fpdf import FPDF
+import json, os, requests
 import pandas as pd
-import requests
+from fpdf import FPDF
+import streamlit as st
 
-USDA_API_KEY = os.environ.get("USDA_API_KEY", "")
+# ────────────────────────── CONFIG ──────────────────────────
+def _read_json(path, blank):         # helper
+    if os.path.exists(path):
+        with open(path,"r") as f:
+            try: return json.load(f)
+            except: pass
+    return blank
 
-UNIT_CONVERSIONS = {
-    "g": 1,
-    "kg": 1000,
-    "oz": 28.35,
-    "lb": 453.6,
-    "ml": 1,
-    "tbsp": 15,
-    "tsp": 5,
-    "cup": 240,
-    "slice": 25,
-    "piece": 50,
-    "clove": 5,
-    "leaf": 1,
-    "pinch": 0.36,
-    "sprig": 0.5,
-    "bunch": 100,
-}
-
-def convert_to_grams(amount, unit, ingredient=None, custom_ingredients=None):
-    if custom_ingredients and ingredient in custom_ingredients:
-        return amount * custom_ingredients[ingredient].get("density", 100)
-    return amount * UNIT_CONVERSIONS.get(unit, 1)
-
-def parse_ingredient_line(line):
-    import re
-    match = re.match(r"(\d+(\.\d+)?)\s*(\w+)\s*(.*)", line.strip())
-    if not match:
-        return 0, "g", ""
-    amount = float(match.group(1))
-    unit = match.group(3).lower()
-    name = match.group(4).strip().lower()
-    return amount, unit, name
+# ───────────────── CUSTOM INGREDIENTS ───────────────────────
+CI_PATH = "custom_ingredients.json"
 
 def load_custom_ingredients():
-    if os.path.exists("custom_ingredients.json"):
-        with open("custom_ingredients.json", "r") as f:
-            return json.load(f)
-    return {}
+    return _read_json(CI_PATH, {})
 
-def save_custom_ingredient(name, protein, carbs, fat, density):
-    ingredients = load_custom_ingredients()
-    ingredients[name.lower()] = {
-        "protein": protein,
-        "carbs": carbs,
-        "fat": fat,
-        "density": density,
-    }
-    with open("custom_ingredients.json", "w") as f:
-        json.dump(ingredients, f, indent=2)
+def save_custom_ingredient(name, unit, g_unit, p,c,f):
+    db = load_custom_ingredients()
+    db[name.lower()] = {"u":unit,"g":g_unit,"p":p,"c":c,"f":f}
+    with open(CI_PATH,"w") as f: json.dump(db,f,indent=2)
 
+# ───────────────── USDA API ─────────────────────────────────
 def fetch_usda_nutrition(query):
-    if not USDA_API_KEY:
-        return None
-    url = "https://api.nal.usda.gov/fdc/v1/foods/search"
-    params = {"api_key": USDA_API_KEY, "query": query, "pageSize": 1}
     try:
-        res = requests.get(url, params=params)
-        res.raise_for_status()
-        data = res.json()
-        item = data["foods"][0]
-        macros = {f["nutrientName"]: f["value"] for f in item["foodNutrients"]}
-        return {
-            "protein": macros.get("Protein", 0),
-            "carbs": macros.get("Carbohydrate, by difference", 0),
-            "fat": macros.get("Total lipid (fat)", 0),
-        }
-    except:
+        api_key = st.secrets["usda"]["api_key"]
+        res = requests.get(
+            "https://api.nal.usda.gov/fdc/v1/foods/search",
+            params={"api_key": api_key,"query": query,"pageSize": 1}
+        )
+        if res.status_code == 429:
+            st.warning("⚠️ API limit exceeded — whoa, girl, please try again tomorrow.")
+            return None
+        item = res.json()["foods"][0]["foodNutrients"]
+        grab = lambda n: next((x["value"] for x in item if n in x["nutrientName"]), 0)
+        return grab("Protein"), grab("Carbohydrate"), grab("Total lipid")
+    except Exception as e:
+        st.error(f"Error fetching USDA data: {e}")
         return None
 
-def get_macro_totals(ingredients):
-    df = pd.DataFrame(ingredients)
-    totals = df[["protein", "carbs", "fat"]].sum().to_frame().T
-    totals["ingredient"] = "Total"
-    return pd.concat([df, totals], ignore_index=True)
+# ───────────────── UNITS ────────────────────────────────────
+U2G = {
+    "g": 1, "oz": 28.35, "ml": 1, "cup": 240, "tbsp": 15, "tsp": 5,
+    "slice": 25, "piece": 50, "clove": 5, "leaf": 1, "pinch": 0.3,
+    "sprig": 0.5, "bunch": 80
+}
 
-def generate_pdf_from_dataframe(df, title="Recipe"):
+def convert_unit_to_grams(amount, unit, name="", ci=None):
+    if ci and name.lower() in ci:
+        return amount * ci[name.lower()]["g"]
+    return amount * U2G.get(unit, 1)
+
+# ───────────────── MACRO CALC ──────────────────────────────
+def calc_macros(ing_rows, servings, ci):
+    rows = []
+    tot = {"Protein": 0, "Carbs": 0, "Fat": 0}
+    for r in ing_rows:
+        if not r["name"]: continue
+        g = convert_unit_to_grams(r["amt"], r["unit"], r["name"], ci)
+        p = g * r["p"] / 100
+        c = g * r["c"] / 100
+        f = g * r["f"] / 100
+        rows.append(dict(
+            Ingredient=r["name"],
+            Amount=f'{r["amt"]} {r["unit"]}',
+            Grams=g,
+            Protein=round(p, 2),
+            Carbs=round(c, 2),
+            Fat=round(f, 2)
+        ))
+        tot["Protein"] += p
+        tot["Carbs"] += c
+        tot["Fat"] += f
+    return pd.DataFrame(rows), {k: round(v, 2) for k, v in tot.items()}
+
+# ───────────────── PDF ─────────────────────────────────────
+def export_recipe_pdf(title, df, tot, serv):
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.cell(200, 10, txt=title, ln=1, align="C")
-    for i, row in df.iterrows():
-        line = f"{row.get('ingredient', '')}: {row.get('amount', '')} | {round(row.get('protein', 0), 1)}g P | {round(row.get('carbs', 0), 1)}g C | {round(row.get('fat', 0), 1)}g F"
-        pdf.cell(200, 10, txt=line, ln=1)
+    pdf.set_font("Helvetica", "", 11)
+    pdf.cell(190, 9, txt=title, ln=1, align="C")
+    pdf.ln(2)
+    for _, r in df.iterrows():
+        pdf.cell(190, 8, txt=(
+            f'{r["Ingredient"]}: {r["Amount"]} '
+            f'| P {r["Protein"]}g C {r["Carbs"]}g F {r["Fat"]}g'
+        ), ln=1)
+    pdf.ln(2)
+    pdf.cell(190, 8, txt=f'Total: P {tot["Protein"]}g  C {tot["Carbs"]}g  F {tot["Fat"]}g', ln=1)
+    pdf.cell(190, 8, txt=(
+        f'Per serving ({serv}): '
+        f'P {tot["Protein"] / serv:.1f}g  '
+        f'C {tot["Carbs"] / serv:.1f}g  '
+        f'F {tot["Fat"] / serv:.1f}g'
+    ), ln=1)
     return pdf.output(dest="S").encode("latin-1")
+
+# ───────────────── SAVED RECIPES ───────────────────────────
+RCP_PATH = "saved_recipes.json"
+
+def load_saved_recipes():
+    return _read_json(RCP_PATH, {})
+
+def save_recipe(title, servings, rows):
+    db = load_saved_recipes()
+    db[title] = {"serv": servings, "rows": rows}
+    with open(RCP_PATH, "w") as f:
+        json.dump(db, f, indent=2)
+
+def delete_recipe(title):
+    db = load_saved_recipes()
+    if title in db:
+        del db[title]
+        with open(RCP_PATH, "w") as f:
+            json.dump(db, f, indent=2)
