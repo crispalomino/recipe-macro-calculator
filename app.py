@@ -1,7 +1,4 @@
 import streamlit as st
-import pandas as pd
-import os
-from io import BytesIO
 from utils import (
     load_custom_ingredients,
     save_custom_ingredient,
@@ -14,92 +11,105 @@ from utils import (
     export_recipe_pdf
 )
 
-# App title
-st.set_page_config(page_title="Recipe Macro Calculator", layout="wide")
-st.title("🥗 Recipe Macro Calculator")
+st.set_page_config(page_title="Recipe Macro Calculator", layout="centered")
+
+st.title("📊 Recipe Macro Calculator")
 
 # Load data
-custom_ingredients = load_custom_ingredients()
-saved_recipes = load_saved_recipes()
+custom_data = load_custom_ingredients()
+saved = load_saved_recipes()
+units = ["g", "oz", "ml", "cup", "tbsp", "tsp", "slice", "piece", "clove", "leaf", "pinch", "sprig", "bunch"]
 
-# Sidebar: Add Custom Ingredient
-with st.sidebar:
-    st.header("🧂 Add Custom Ingredient")
-    with st.form("custom_form"):
-        name = st.text_input("Ingredient name")
-        unit = st.selectbox("Unit", ["g", "oz", "ml", "cup", "tbsp", "tsp", "slice", "piece", "clove", "leaf", "pinch", "sprig", "bunch"])
-        g_per_unit = st.number_input("Grams per unit", 0.0, 1000.0)
-        p = st.number_input("Protein (100g)", 0.0, 100.0)
-        c = st.number_input("Carbs (100g)", 0.0, 100.0)
-        f = st.number_input("Fat (100g)", 0.0, 100.0)
-        submitted = st.form_submit_button("Save Ingredient")
-        if submitted and name:
-            save_custom_ingredient(name, unit, g_per_unit, p, c, f)
-            st.success(f"{name} saved. Please reload the app.")
+# Sidebar – Add custom ingredient
+st.sidebar.header("➕ Add Custom Ingredient")
+with st.sidebar.form("add_custom"):
+    new_name = st.text_input("Name").strip()
+    unit = st.selectbox("Unit", units, key="custom_unit")
+    g_per_unit = st.number_input("Grams per unit", min_value=0.1)
+    p = st.number_input("Protein per 100g", min_value=0.0)
+    c = st.number_input("Carbs per 100g", min_value=0.0)
+    f = st.number_input("Fat per 100g", min_value=0.0)
+    submit_custom = st.form_submit_button("Add")
+    if submit_custom and new_name:
+        save_custom_ingredient(new_name, unit, g_per_unit, p, c, f)
+        st.sidebar.success(f"Added: {new_name}")
 
-# Tabs
-tab1, tab2, tab3 = st.tabs(["➕ Add New Recipe", "📂 View/Edit Recipes", "📥 Import USDA"])
+# Recipe setup
+title = st.text_input("📘 Recipe Title")
+servings = st.number_input("🍽 Number of Servings", value=1, min_value=1)
 
-# Tab 1: Add New Recipe
-with tab1:
-    st.subheader("Add New Recipe")
-    title = st.text_input("Recipe Title", key="new_title")
-    servings = st.number_input("Number of Servings", 1, 100, 1)
-    instructions = st.text_area("Instructions (optional)", height=100)
-    ingredients = []
+num_ingredients = st.number_input("Number of Ingredients", value=5, min_value=1, step=1)
 
-    for i in range(5):  # Allow 5 ingredient slots
-        cols = st.columns([2, 1, 1, 1, 1, 1])
-        name = cols[0].text_input("Ingredient", key=f"ing_{i}")
-        amt = cols[1].number_input("Amount", 0.0, 10000.0, key=f"amt_{i}")
-        unit = cols[2].selectbox("Unit", ["g", "oz", "ml", "cup", "tbsp", "tsp", "slice", "piece", "clove", "leaf", "pinch", "sprig", "bunch"], key=f"unit_{i}")
-        p = cols[3].number_input("Protein (100g)", 0.0, 100.0, key=f"p_{i}")
-        c = cols[4].number_input("Carbs (100g)", 0.0, 100.0, key=f"c_{i}")
-        f = cols[5].number_input("Fat (100g)", 0.0, 100.0, key=f"f_{i}")
-        if name:
-            ingredients.append({"name": name, "amt": amt, "unit": unit, "p": p, "c": c, "f": f})
+ingredients = []
+st.subheader("🧾 Ingredients")
 
-    if st.button("Calculate Macros"):
-        if not ingredients:
-            st.warning("Please enter at least one ingredient.")
-        else:
-            df, totals = calc_macros(ingredients, servings, custom_ingredients)
-            st.dataframe(df)
-            st.subheader("Total Macros")
-            st.json(totals)
+for i in range(int(num_ingredients)):
+    with st.container():
+        name = st.text_input(f"Name", key=f"name_{i}")
+        amt = st.number_input("Amount", min_value=0.0, key=f"amt_{i}")
+        unit = st.selectbox("Unit", units, key=f"unit_{i}")
+        p = st.number_input("Protein (per 100g)", min_value=0.0, key=f"p_{i}")
+        c = st.number_input("Carbs (per 100g)", min_value=0.0, key=f"c_{i}")
+        f = st.number_input("Fat (per 100g)", min_value=0.0, key=f"f_{i}")
 
-            if st.button("💾 Save Recipe"):
-                save_recipe(title, servings, ingredients, instructions)
-                st.success("Recipe saved!")
+        # Autofill if macros are blank
+        if name and amt > 0 and unit:
+            if (p == 0.0 or c == 0.0 or f == 0.0) and name.lower() not in custom_data:
+                result = fetch_usda_nutrition(name)
+                if isinstance(result, tuple):
+                    p, c, f = result
+                    st.session_state[f"p_{i}"] = p
+                    st.session_state[f"c_{i}"] = c
+                    st.session_state[f"f_{i}"] = f
+                    st.caption(f"📡 Fetched USDA: P={p} C={c} F={f}")
+                elif isinstance(result, str):
+                    st.warning(result)
 
-            if st.button("📄 Export This Recipe"):
-                pdf_bytes = export_recipe_pdf(title, df, totals, servings, instructions)
-                st.download_button("Download PDF", data=pdf_bytes, file_name=f"{title}.pdf")
+        if name and amt:
+            ingredients.append({
+                "name": name,
+                "amt": amt,
+                "unit": unit,
+                "p": p,
+                "c": c,
+                "f": f
+            })
 
-# Tab 2: View/Edit Recipes
-with tab2:
-    st.subheader("Saved Recipes")
-    if saved_recipes:
-        selected = st.selectbox("Select a recipe", list(saved_recipes.keys()))
-        rec = saved_recipes[selected]
-        st.write(f"**Servings:** {rec['servings']}")
-        st.write(f"**Instructions:** {rec['instructions']}")
-        st.json(rec["ingredients"])
-        if st.button("🗑️ Delete Recipe"):
-            delete_recipe(selected)
-            st.experimental_rerun()
-    else:
-        st.info("No recipes saved yet.")
+# Instructions
+instructions = st.text_area("📋 Instructions (optional)")
 
-# Tab 3: USDA API
-with tab3:
-    st.subheader("USDA Lookup")
-    query = st.text_input("Search USDA for an ingredient")
-    if st.button("Search") and query:
-        result = fetch_usda_nutrition(query)
-        if isinstance(result, tuple):
-            st.success(f"Protein: {result[0]}, Carbs: {result[1]}, Fat: {result[2]}")
-        elif result:
-            st.error(result)
-        else:
-            st.warning("No result found.")
+# Calculate and display
+if st.button("Calculate Macros") and ingredients:
+    df, totals = calc_macros(ingredients, servings, custom_data)
+    st.success("✅ Macro Breakdown:")
+    st.dataframe(df)
+    st.subheader("Total Macros (for entire recipe):")
+    st.write(totals)
+
+    st.subheader("Per Serving:")
+    if servings:
+        per = {k: round(v / servings, 2) for k, v in totals.items()}
+        st.write(per)
+
+    st.download_button(
+        label="📥 Export This Recipe",
+        data=export_recipe_pdf(title, df, totals, servings, instructions),
+        file_name=f"{title.replace(' ', '_')}.pdf",
+        mime="application/pdf"
+    )
+
+# Save & manage recipes
+if st.button("💾 Save This Recipe"):
+    if title and ingredients:
+        save_recipe(title, servings, ingredients, instructions)
+        st.success("Recipe saved.")
+
+st.sidebar.header("📂 Load or Manage Recipes")
+selected = st.sidebar.selectbox("📑 View Saved Recipe", [""] + list(saved.keys()))
+if selected:
+    data = saved[selected]
+    st.sidebar.write(f"🍽 Servings: {data['servings']}")
+    st.sidebar.write(f"🧾 Ingredients: {len(data['ingredients'])}")
+    if st.sidebar.button("❌ Delete"):
+        delete_recipe(selected)
+        st.sidebar.success("Deleted. Refresh to update.")
