@@ -4,10 +4,13 @@ import requests
 import pandas as pd
 from fpdf import FPDF
 from io import BytesIO
+import streamlit as st
 
+# ────── File paths ──────
 CUSTOM_FILE = "custom_ingredients.json"
 SAVED_FILE = "saved_recipes.json"
 
+# ────── Loaders & Savers ──────
 def load_custom_ingredients():
     if os.path.exists(CUSTOM_FILE):
         with open(CUSTOM_FILE, "r") as f:
@@ -49,6 +52,7 @@ def delete_recipe(title):
         with open(SAVED_FILE, "w") as f:
             json.dump(data, f, indent=2)
 
+# ────── Unit Conversion ──────
 UNIT_CONVERSIONS = {
     "g": 1,
     "oz": 28.35,
@@ -70,11 +74,10 @@ def convert_unit_to_grams(unit, amount, custom_data=None):
         return amount * custom_data.get("g_per_unit", 1)
     return amount * UNIT_CONVERSIONS.get(unit, 1)
 
+# ────── USDA Lookup ──────
 def fetch_usda_nutrition(query):
     try:
-        api_key = os.environ.get("USDA_API_KEY") or (os.path.exists(".streamlit/secrets.toml") and read_usda_key())
-        if not api_key:
-            return None
+        api_key = st.secrets["api_key"]
         url = f"https://api.nal.usda.gov/fdc/v1/foods/search?query={query}&api_key={api_key}&pageSize=1"
         res = requests.get(url)
         if res.status_code == 429:
@@ -90,16 +93,7 @@ def fetch_usda_nutrition(query):
     except Exception:
         return None
 
-def read_usda_key():
-    try:
-        with open(".streamlit/secrets.toml", "r") as f:
-            lines = f.readlines()
-        for line in lines:
-            if line.startswith("api_key"):
-                return line.split("=")[1].strip().strip('"')
-    except:
-        return None
-
+# ────── Macro Calculation ──────
 def calc_macros(ingredients, servings, custom_data):
     rows = []
     total = {"calories": 0, "protein": 0, "carbs": 0, "net_carbs": 0, "fat": 0, "fiber": 0}
@@ -128,28 +122,34 @@ def calc_macros(ingredients, servings, custom_data):
         total["protein"] += protein
         total["carbs"] += carbs
         total["fat"] += fat
-        total["net_carbs"] += carbs
+        total["net_carbs"] += carbs  # Adjust later if fiber is added
     return pd.DataFrame(rows), {k: round(v, 2) for k, v in total.items()}
 
+# ────── PDF Export ──────
 def export_recipe_pdf(title, df, totals, servings, instructions):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", "B", 14)
     pdf.cell(0, 10, title, ln=1)
+
     pdf.set_font("Arial", "", 11)
     pdf.multi_cell(0, 10, f"Servings: {servings}\n\nInstructions:\n{instructions}\n")
+
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 10, "Ingredients", ln=1)
+
     pdf.set_font("Arial", "", 10)
     for _, row in df.iterrows():
         line = f"{row['Ingredient']}: {row['Amount']} ({row['Grams']}g) | P: {row['Protein']}g, C: {row['Carbs']}g, F: {row['Fat']}g, Cal: {row['Calories']}"
         pdf.multi_cell(0, 8, line)
+
     pdf.ln(5)
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 10, "Total Macros", ln=1)
     pdf.set_font("Arial", "", 10)
     for k, v in totals.items():
         pdf.cell(0, 8, f"{k.capitalize()}: {v}", ln=1)
+
     output = BytesIO()
     pdf.output(output)
     return output.getvalue()
