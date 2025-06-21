@@ -1,15 +1,16 @@
+# Recipe Macro Calculator
 
-# 🧮 Recipe Macro Calculator
+A web app built with Streamlit to calculate nutrition macros from custom or USDA ingredients. You can:
 
-A Streamlit app to calculate and manage recipe macros. Features:
-- Add custom ingredients (e.g., PB2, whey protein)
-- Adjust number of servings (0.5x, 2x, 4x buttons)
-- View per-ingredient and per-serving macros
-- Save, edit, duplicate, and delete recipes
-- Export recipes as nutrition-style PDF
+- Enter recipe ingredients
+- Use USDA lookup or custom entries
+- View totals and export as PDF
 
-## To Run Locally
+## Setup
+
+1. Install requirements: `pip install -r requirements.txt`
+2. Create `.streamlit/secrets.toml` with:
+```toml
+USDA_API_KEY = "your_api_key_here"
 ```
-pip install -r requirements.txt
-streamlit run app.py
-```
+3. Run with: `streamlit run app.py`
