@@ -69,9 +69,9 @@ for i in range(int(num_ingredients)):
         if usda:
             p, c, f = usda
 
-    p = cols[3].number_input("Protein (100g)", 0.0, 1000.0, p, key=f"p_{i}")
-    c = float(cols[4].number_input("Carbs (100g)", 0.0, 1000.0, float(c), key=f"c_{i}"))
-    f = cols[5].number_input("Fat (100g)", 0.0, 1000.0, f, key=f"f_{i}")
+   p = float(cols[3].number_input("Protein (100g)", 0.0, 1000.0, float(p), key=f"p_{i}"))
+   c = float(cols[4].number_input("Carbs (100g)", 0.0, 1000.0, float(c), key=f"c_{i}"))
+   f = float(cols[5].number_input("Fat (100g)", 0.0, 1000.0, float(f), key=f"f_{i}"))
 
     ingredient_inputs.append({
         "name": name,
