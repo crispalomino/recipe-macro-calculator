@@ -44,46 +44,46 @@ ingredients = []
 st.subheader("🧾 Ingredients")
 
 for i in range(int(num_ingredients)):
-    with st.container():
-        name = st.text_input(f"Name", key=f"name_{i}")
-        amt = st.number_input("Amount", min_value=0.0, key=f"amt_{i}")
-        unit = st.selectbox("Unit", units, key=f"unit_{i}")
-        p = st.number_input("Protein (per 100g)", min_value=0.0, key=f"p_{i}")
-        c = st.number_input("Carbs (per 100g)", min_value=0.0, key=f"c_{i}")
-        f = st.number_input("Fat (per 100g)", min_value=0.0, key=f"f_{i}")
+    cols = st.columns([3, 2, 2, 2, 2, 2])
+    name = cols[0].text_input("Ingredient", key=f"name_{i}")
+    amt = cols[1].number_input("Amt", key=f"amt_{i}", min_value=0.0)
+    unit = cols[2].selectbox("Unit", units, key=f"unit_{i}")
+    p = cols[3].number_input("P/100g", key=f"p_{i}", value=0.0)
+    c = cols[4].number_input("C/100g", key=f"c_{i}", value=0.0)
+    f = cols[5].number_input("F/100g", key=f"f_{i}", value=0.0)
 
-        # Autofill if macros are blank
-        if name and amt > 0 and unit:
-            if (p == 0.0 or c == 0.0 or f == 0.0) and name.lower() not in custom_data:
-                result = fetch_usda_nutrition(name)
-                if isinstance(result, tuple):
-                    p, c, f = result
-                    st.session_state[f"p_{i}"] = p
-                    st.session_state[f"c_{i}"] = c
-                    st.session_state[f"f_{i}"] = f
-                    st.caption(f"📡 Fetched USDA: P={p} C={c} F={f}")
-                elif isinstance(result, str):
-                    st.warning(result)
+    # Autofill if macros are blank
+    if name and amt > 0 and unit:
+        if (p == 0.0 or c == 0.0 or f == 0.0) and name.lower() not in custom_data:
+            result = fetch_usda_nutrition(name)
+            if isinstance(result, tuple):
+                p, c, f = result
+                st.session_state[f"p_{i}"] = p
+                st.session_state[f"c_{i}"] = c
+                st.session_state[f"f_{i}"] = f
+                st.caption(f"📡 USDA fetched: P={p} C={c} F={f}")
+            elif isinstance(result, str):
+                st.warning(result)
 
-        if name and amt:
-            ingredients.append({
-                "name": name,
-                "amt": amt,
-                "unit": unit,
-                "p": p,
-                "c": c,
-                "f": f
-            })
+    if name and amt:
+        ingredients.append({
+            "name": name,
+            "amt": amt,
+            "unit": unit,
+            "p": p,
+            "c": c,
+            "f": f
+        })
 
 # Instructions
 instructions = st.text_area("📋 Instructions (optional)")
 
-# Calculate and display
+# Calculate
 if st.button("Calculate Macros") and ingredients:
     df, totals = calc_macros(ingredients, servings, custom_data)
     st.success("✅ Macro Breakdown:")
     st.dataframe(df)
-    st.subheader("Total Macros (for entire recipe):")
+    st.subheader("Total Macros (for full recipe):")
     st.write(totals)
 
     st.subheader("Per Serving:")
@@ -98,12 +98,13 @@ if st.button("Calculate Macros") and ingredients:
         mime="application/pdf"
     )
 
-# Save & manage recipes
+# Save
 if st.button("💾 Save This Recipe"):
     if title and ingredients:
         save_recipe(title, servings, ingredients, instructions)
         st.success("Recipe saved.")
 
+# Sidebar – View recipes
 st.sidebar.header("📂 Load or Manage Recipes")
 selected = st.sidebar.selectbox("📑 View Saved Recipe", [""] + list(saved.keys()))
 if selected:
