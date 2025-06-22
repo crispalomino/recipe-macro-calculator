@@ -44,35 +44,45 @@ ingredients = []
 st.subheader("🧾 Ingredients")
 
 for i in range(int(num_ingredients)):
-    cols = st.columns([3, 2, 2, 2, 2, 2])
+    cols = st.columns([3, 2, 2, 2, 2, 2, 1])
     name = cols[0].text_input("Ingredient", key=f"name_{i}")
     amt = cols[1].number_input("Amt", key=f"amt_{i}", min_value=0.0)
     unit = cols[2].selectbox("Unit", units, key=f"unit_{i}")
-    p = cols[3].number_input("P/100g", key=f"p_{i}", value=0.0)
-    c = cols[4].number_input("C/100g", key=f"c_{i}", value=0.0)
-    f = cols[5].number_input("F/100g", key=f"f_{i}", value=0.0)
+    p = cols[3].number_input("P/100g", key=f"p_{i}", value=0.0, step=0.1, format="%.2f")
+    c = cols[4].number_input("C/100g", key=f"c_{i}", value=0.0, step=0.1, format="%.2f")
+    f = cols[5].number_input("F/100g", key=f"f_{i}", value=0.0, step=0.1, format="%.2f")
 
-    # Autofill if macros are blank
-    if name and amt > 0 and unit:
-        if (p == 0.0 or c == 0.0 or f == 0.0) and name.lower() not in custom_data:
+    # Manual Fetch Button
+    if cols[6].button("🔍", key=f"fetch_{i}"):
+        if name:
             result = fetch_usda_nutrition(name)
             if isinstance(result, tuple):
-                p, c, f = result
-                st.session_state[f"p_{i}"] = p
-                st.session_state[f"c_{i}"] = c
-                st.session_state[f"f_{i}"] = f
-                st.caption(f"📡 USDA fetched: P={p} C={c} F={f}")
+                st.session_state[f"p_{i}"] = result[0]
+                st.session_state[f"c_{i}"] = result[1]
+                st.session_state[f"f_{i}"] = result[2]
+                st.success(f"{name} → P:{result[0]} C:{result[1]} F:{result[2]}")
             elif isinstance(result, str):
                 st.warning(result)
+
+    # Auto-fetch fallback
+    if name and amt > 0 and unit and (p == 0.0 and c == 0.0 and f == 0.0):
+        if name.lower() not in custom_data:
+            result = fetch_usda_nutrition(name)
+            if isinstance(result, tuple):
+                st.session_state[f"p_{i}"] = result[0]
+                st.session_state[f"c_{i}"] = result[1]
+                st.session_state[f"f_{i}"] = result[2]
+            elif isinstance(result, str):
+                st.caption(result)
 
     if name and amt:
         ingredients.append({
             "name": name,
             "amt": amt,
             "unit": unit,
-            "p": p,
-            "c": c,
-            "f": f
+            "p": st.session_state.get(f"p_{i}", p),
+            "c": st.session_state.get(f"c_{i}", c),
+            "f": st.session_state.get(f"f_{i}", f)
         })
 
 # Instructions
