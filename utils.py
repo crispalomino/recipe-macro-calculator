@@ -80,17 +80,24 @@ def fetch_usda_nutrition(query):
         api_key = st.secrets["api_key"]
         url = f"https://api.nal.usda.gov/fdc/v1/foods/search?query={query}&api_key={api_key}&pageSize=1"
         res = requests.get(url)
+        st.write(f"Querying USDA for: {query}")  # Debug output
+
         if res.status_code == 429:
-            return "API limit exceeded — whoa, girl, please try again tomorrow."
+            st.warning("API limit exceeded — whoa, girl, please try again tomorrow.")
+            return None
+
         data = res.json()
         if "foods" not in data or not data["foods"]:
+            st.warning(f"No USDA match found for: {query}")
             return None
+
         food = data["foods"][0]
         p = next((x["value"] for x in food["foodNutrients"] if x["nutrientName"] == "Protein"), 0.0)
         c = next((x["value"] for x in food["foodNutrients"] if x["nutrientName"] == "Carbohydrate, by difference"), 0.0)
         f = next((x["value"] for x in food["foodNutrients"] if x["nutrientName"] == "Total lipid (fat)"), 0.0)
         return p, c, f
-    except Exception:
+    except Exception as e:
+        st.error(f"Error during USDA lookup: {e}")
         return None
 
 # ────── Macro Calculation ──────
@@ -122,7 +129,7 @@ def calc_macros(ingredients, servings, custom_data):
         total["protein"] += protein
         total["carbs"] += carbs
         total["fat"] += fat
-        total["net_carbs"] += carbs  # Adjust later if fiber is added
+        total["net_carbs"] += carbs  # Adjust later if fiber added
     return pd.DataFrame(rows), {k: round(v, 2) for k, v in total.items()}
 
 # ────── PDF Export ──────
